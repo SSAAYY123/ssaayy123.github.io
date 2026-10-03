@@ -773,6 +773,7 @@ header { height:auto; min-height:64px; flex-wrap:wrap; gap:10px; }
     <input id="photoInput" type="file" accept="image/*,.heic,.heif" multiple hidden>
   </div>
   <p class="photoHelp">사진은 기존 파일과 같은 저장공간을 사용합니다. 저용량 다운로드는 가로 최대 500px, 세로 비율을 유지한 JPG입니다.</p>
+  <div id="photoDropzone" class="dropzone">사진 또는 사진 폴더를 여기에 끌어놓으세요</div>
   <div id="photoStatus" role="status"></div>
   <div id="photoGrid" class="photoGrid"></div>
   <button id="photoMoreButton" class="hidden">사진 더 보기</button>
@@ -915,6 +916,7 @@ header { height:auto; min-height:64px; flex-wrap:wrap; gap:10px; }
 </div>
 
 <script src="photos.js"></script>
+<script src="desktop-downloads.js"></script>
 <script>
 const INACTIVITY_LIMIT=30*60*1000;
 const INACTIVITY_TOKEN_KEY="sehee_files_token";
@@ -1847,6 +1849,14 @@ checkbox.addEventListener(
       ).textContent =
         file.name;
 
+      const fileName = row.querySelector(".fileName");
+      fileName.title = "더블클릭하면 원본 다운로드 · 바탕화면으로 끌어 다운로드 (지원 브라우저)";
+      fileName.addEventListener("dblclick", function(event) {
+        event.stopPropagation();
+        downloadFile(file.key);
+      });
+      row.addEventListener("mouseenter", function() { prepareDesktopDownloads([file]); });
+
       row.querySelector(".fileIcon").innerHTML = getFileIconHtml(file.name);
 
       row.querySelector(
@@ -1916,6 +1926,8 @@ checkbox.addEventListener(
             file.key
           );
 
+          addDesktopDownloadData(event.dataTransfer, file);
+
           row.classList.add(
             "dragging"
           );
@@ -1935,6 +1947,7 @@ checkbox.addEventListener(
     }
   );
 
+  prepareDesktopDownloads(pageFiles);
   renderPagination(
     totalPages
   );

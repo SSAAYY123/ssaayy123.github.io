@@ -108,6 +108,23 @@ async function createToken(username, password) {
   return payload + "." + signature;
 }
 
+async function createDownloadTicket(key, env) {
+  const exp = Math.floor(Date.now() / 1000) + 300;
+  const json = JSON.stringify({ kind: "file-download", key, exp });
+  const bytes = new TextEncoder().encode(json);
+  const payload = base64urlEncode(Array.from(bytes, byte => String.fromCharCode(byte)).join(""));
+  return { ticket: payload + "." + await makeSignature(payload, env.AUTH_PASSWORD), expiresAt: exp * 1000 };
+}
+async function validDownloadTicket(ticket, key, env) {
+  try {
+    const parts = String(ticket || "").split(".");
+    if (parts.length !== 2 || parts[1] !== await makeSignature(parts[0], env.AUTH_PASSWORD)) return false;
+    const binary = base64urlDecode(parts[0]);
+    const data = JSON.parse(new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0))));
+    return data.kind === "file-download" && data.key === key && data.exp > Math.floor(Date.now() / 1000);
+  } catch (error) { return false; }
+}
+
 async function getAuthRole(request, env) {
   try {
     const authorization = request.headers.get("Authorization") || "";
@@ -390,7 +407,11 @@ export default {
       /*
        * 인증 확인
        */
-      const authRole = await getAuthRole(request, env);
+      const authRole = await getAuthRole(request, env) || (
+        url.pathname === "/api/download" && request.method === "GET" &&
+        await validDownloadTicket(url.searchParams.get("ticket"), url.searchParams.get("key"), env)
+          ? "admin" : null
+      );
 
       if (!authRole) {
         return errorResponse(
@@ -410,6 +431,21 @@ export default {
       if (request.method !== "GET" && request.method !== "HEAD") {
         const adminError = requireAdmin();
         if (adminError) return adminError;
+      }
+
+      // Desktop drag downloads cannot send Authorization headers; issue file-scoped tickets.
+      if (url.pathname === "/api/download-links" && request.method === "POST") {
+        const body = await request.json();
+        if (!Array.isArray(body.keys) || body.keys.length > 30 || body.keys.some(key => typeof key !== "string" || !key || key.length > 2048 || key.endsWith("/"))) {
+          return errorResponse("잘못된 파일 목록입니다.", 400);
+        }
+        const links = await Promise.all(body.keys.map(async key => {
+          const { ticket, expiresAt } = await createDownloadTicket(key, env);
+          return { key, path: "/api/download?key=" + encodeURIComponent(key) + "&ticket=" + encodeURIComponent(ticket), expiresAt };
+        }));
+        const response = jsonResponse({ links });
+        response.headers.set("Cache-Control", "no-store");
+        return response;
       }
 
       // One R2 object per original photo; list pictures across all file folders.
@@ -1203,6 +1239,8 @@ export default {
               ...corsHeaders,
               "Content-Type":
                 contentType,
+              "Cache-Control": "private, no-store",
+              "Referrer-Policy": "no-referrer",
               "Content-Disposition":
                 "attachment; filename*=UTF-8''" +
                 encodeURIComponent(

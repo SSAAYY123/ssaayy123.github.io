@@ -158,18 +158,51 @@ document.getElementById('photosTab').onclick = async function() {
   await loadPhotos();
 };
 document.getElementById('photoUploadButton').onclick = () => document.getElementById('photoInput').click();
-document.getElementById('photoInput').onchange = async function() {
-  const files = Array.from(this.files || []); this.value = '';
-  if (!files.length) return;
-  const button = document.getElementById('photoUploadButton'); button.disabled = true;
+async function uploadPhotoItems(items) {
+  if (!items.length) return;
+  const button = document.getElementById('photoUploadButton');
+  if (button.disabled) return;
+  button.disabled = true;
   try {
-    const images = files.filter(file => file.type.startsWith('image/') || isPhotoName(file.name));
-    if (images.length !== files.length) alert('사진 파일만 업로드할 수 있습니다.');
-    // Normal file folder: both tabs see the exact same originals, with no duplicates.
+    const images = items.filter(item => {
+      const file = item.file || item;
+      return file.type.startsWith('image/') || isPhotoName(file.name);
+    });
+    if (images.length !== items.length) alert('사진 파일만 업로드할 수 있습니다. 사진 이외의 파일은 제외했어요.');
+    if (!images.length) return;
     await uploadFiles(images, '사진');
     await loadPhotos();
   } finally { button.disabled = false; }
+}
+document.getElementById('photoInput').onchange = async function() {
+  const files = Array.from(this.files || []); this.value = '';
+  await uploadPhotoItems(files);
 };
+const photoDropzone = document.getElementById('photoDropzone');
+photoDropzone.addEventListener('dragover', function(event) {
+  if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+  this.classList.add('dragover');
+});
+photoDropzone.addEventListener('dragleave', function() { this.classList.remove('dragover'); });
+photoDropzone.addEventListener('drop', async function(event) {
+  event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover');
+  // Capture handles synchronously; the browser clears drag data after this event.
+  const handles = Array.from(event.dataTransfer.items || []).filter(item => item.kind === 'file').map(item => {
+    const getEntry = item.webkitGetAsEntry || item.getAsEntry;
+    return { entry: getEntry ? getEntry.call(item) : null, file: item.getAsFile() };
+  });
+  const fallbackFiles = Array.from(event.dataTransfer.files || []);
+  const files = [];
+  try {
+    for (const handle of handles) {
+      if (handle.entry) await collectDroppedEntry(handle.entry, '', files);
+      else if (handle.file) files.push(handle.file);
+    }
+    await uploadPhotoItems(handles.length ? files : fallbackFiles);
+  } catch (error) { alert('사진을 읽지 못했습니다. 다시 끌어놓거나 사진 업로드 버튼을 이용해주세요.'); }
+});
 document.getElementById('photoRefreshButton').onclick = () => loadPhotos();
 document.getElementById('photoMoreButton').onclick = () => loadPhotos(false);
 document.getElementById('logoutButton').addEventListener('click', clearPhotoPreviews);

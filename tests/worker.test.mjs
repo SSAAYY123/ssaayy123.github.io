@@ -231,3 +231,87 @@ test('low-size download decodes the original, scales proportionally and exports 
   imageWidth=320;imageHeight=240;
   await context.resizePhotoBlob(new Blob(['small']));assert.deepEqual(drawSize,[320,240]);
 });
+
+test('desktop tickets download one Unicode-named file and cannot authorize other operations', async () => {
+  const {call, env} = setup(); const admin = await login(call);
+  const key='자료/123-응급 사진.jpg';
+  await env.FILES.put(key,'original picture',{customMetadata:{originalName:'응급 사진.jpg'}});
+  assert.equal((await call('/api/download-links','POST',{keys:[key]})).status,401);
+  const response=await call('/api/download-links','POST',{keys:[key]},admin);
+  assert.equal(response.headers.get('cache-control'),'no-store');
+  const link=(await response.json()).links[0];
+  assert.ok(link.expiresAt <= Date.now()+300000);
+  const downloaded=await call(link.path);
+  assert.equal(downloaded.status,200);
+  assert.equal(await downloaded.text(),'original picture');
+  const url=new URL('https://example.workers.dev'+link.path);
+  const ticket=url.searchParams.get('ticket');
+  url.searchParams.set('key','자료/another.jpg');
+  assert.equal((await call(url.pathname+url.search)).status,401);
+  assert.equal((await call('/api/files?ticket='+encodeURIComponent(ticket))).status,401);
+  assert.equal((await call('/api/me','GET',null,ticket)).status,401);
+  assert.equal((await call('/api/download-links','POST',{keys:[key]},ticket)).status,401);
+  const expiredPayload=Buffer.from(JSON.stringify({kind:'file-download',key,exp:Math.floor(Date.now()/1000)-1})).toString('base64url');
+  const expired=expiredPayload+'.'+createHmac('sha256',env.AUTH_PASSWORD).update(expiredPayload).digest('base64url');
+  assert.equal((await call('/api/download?key='+encodeURIComponent(key)+'&ticket='+encodeURIComponent(expired))).status,401);
+  assert.equal((await call('/api/download-links','POST',{keys:Array(31).fill(key)},admin)).status,400);
+});
+
+test('desktop drag preserves internal move data and adds DownloadURL with no admin token', async () => {
+  const code=await readFile(new URL('../desktop-downloads.js',import.meta.url),'utf8');
+  const context=vm.createContext({
+    Map, Set, URL, Date, API:'https://example.workers.dev',getToken:()=> 'owner-login-token',
+    document:{getElementById:()=>({addEventListener:()=>{}})},window:{addEventListener:()=>{}},
+    apiFetch:async()=>({ok:true,json:async()=>({links:[{key:'写真.jpg',path:'/api/download?key=photo&ticket=scoped',expiresAt:Date.now()+300000}]})})
+  });
+  vm.runInContext(code,context);
+  const file={key:'写真.jpg',name:'写真.jpg'};
+  await context.prepareDesktopDownloads([file]);
+  const data=new Map([['text/plain',file.key]]);
+  const transfer={setData:(type,value)=>data.set(type,value)};
+  assert.equal(context.addDesktopDownloadData(transfer,file),true);
+  assert.equal(data.get('text/plain'),file.key);
+  assert.ok(data.get('DownloadURL').includes('ticket=scoped'));
+  assert.ok(!data.get('DownloadURL').includes('owner-login-token'));
+  assert.equal(transfer.effectAllowed,'copyMove');
+});
+
+test('photo drop uploads only photos and preserves folder-relative paths', async () => {
+  const code=await readFile(new URL('../photos.js',import.meta.url),'utf8');
+  const elements=new Map();
+  const element=id=>{
+    if(!elements.has(id))elements.set(id,{disabled:false,events:{},classList:{add:()=>{},remove:()=>{}},addEventListener(type,fn){this.events[type]=fn;}});
+    return elements.get(id);
+  };
+  let uploaded, refreshed=0;const alerts=[];
+  const context=vm.createContext({
+    document:{getElementById:element},window:{addEventListener:()=>{}},
+    alert:message=>alerts.push(message),
+    uploadFiles:async(files,folder)=>{uploaded={files,folder};},
+    collectDroppedEntry:async(_entry,_path,output)=>{
+      output.push({file:{name:'풍경.jpg',type:'image/jpeg'},relativePath:'휴가/풍경.jpg'});
+      output.push({file:{name:'설명.pdf',type:'application/pdf'},relativePath:'휴가/설명.pdf'});
+    }
+  });
+  vm.runInContext(code,context);context.loadPhotos=async()=>{refreshed++;};
+  await element('photoDropzone').events.drop.call(element('photoDropzone'),{
+    preventDefault:()=>{},stopPropagation:()=>{},dataTransfer:{items:[{kind:'file',webkitGetAsEntry:()=>({isDirectory:true}),getAsFile:()=>null}],files:[]}
+  });
+  assert.equal(uploaded.folder,'사진');
+  assert.equal(uploaded.files.length,1);
+  assert.equal(uploaded.files[0].relativePath,'휴가/풍경.jpg');
+  assert.equal(refreshed,1);
+  assert.equal(alerts.length,1);
+  assert.equal(element('photoUploadButton').disabled,false);
+});
+
+test('double-click on file name downloads that file', async () => {
+  const html=await readFile(new URL('../work.html',import.meta.url),'utf8');
+  const start=html.indexOf('      const fileName = row.querySelector');
+  const code=html.slice(start,html.indexOf('      row.querySelector(".fileIcon")',start));
+  const handlers={};let downloaded,stopped=false;
+  const name={addEventListener:(type,fn)=>handlers[type]=fn};
+  vm.runInNewContext(code,{row:{querySelector:()=>name,addEventListener:()=>{}},file:{key:'my-file'},downloadFile:key=>{downloaded=key;},prepareDesktopDownloads:()=>{}});
+  handlers.dblclick({stopPropagation:()=>{stopped=true;}});
+  assert.equal(downloaded,'my-file');assert.equal(stopped,true);
+});
