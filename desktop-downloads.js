@@ -1,32 +1,76 @@
-const desktopDownloadLinks = new Map();
-const pendingDesktopKeys = new Set();
-async function prepareDesktopDownloads(files) {
+// Both tabs drag authenticated, locally loaded originals rather than remote links.
+const desktopOriginals = new Map();
+const pendingDesktopOriginals = new Map();
+let desktopGeneration = 0;
+function forgetDesktopOriginal(key) {
+  const original = desktopOriginals.get(key);
+  if (original) URL.revokeObjectURL(original.url);
+  desktopOriginals.delete(key);
+}
+function clearDesktopOriginals() {
+  desktopGeneration++;
+  desktopOriginals.forEach(original => URL.revokeObjectURL(original.url));
+  desktopOriginals.clear();
+  pendingDesktopOriginals.clear();
+}
+async function getDesktopOriginal(file) {
+  if (!getToken()) throw new Error('로그인이 필요합니다.');
+  if (desktopOriginals.has(file.key)) return desktopOriginals.get(file.key);
+  if (pendingDesktopOriginals.has(file.key)) return pendingDesktopOriginals.get(file.key);
+  const generation = desktopGeneration;
+  const task = (async () => {
+    const blob = await fetchPhotoBlob(file.key);
+    if (generation !== desktopGeneration || !getToken()) throw new Error('로그인이 필요합니다.');
+    const original = { url: URL.createObjectURL(blob), type: blob.type || 'application/octet-stream', size: blob.size };
+    desktopOriginals.set(file.key, original);
+    return original;
+  })();
+  pendingDesktopOriginals.set(file.key, task);
+  try { return await task; }
+  finally { if (pendingDesktopOriginals.get(file.key) === task) pendingDesktopOriginals.delete(file.key); }
+}
+async function prepareDesktopDownloads(files, onHover = false) {
   if (!getToken()) return;
-  const keys = files.map(file => file.key).filter(key => {
-    const link = desktopDownloadLinks.get(key);
-    return !pendingDesktopKeys.has(key) && (!link || link.expiresAt < Date.now() + 30000);
-  }).slice(0, 30);
-  if (!keys.length) return;
-  keys.forEach(key => pendingDesktopKeys.add(key));
-  try {
-    const response = await apiFetch('/api/download-links', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys })
-    });
-    if (!response.ok) return;
-    const data = await response.json();
-    if (!getToken()) return;
-    data.links.forEach(link => desktopDownloadLinks.set(link.key, { url: new URL(link.path, API).href, expiresAt: link.expiresAt }));
-  } catch (error) { /* Ordinary and double-click downloads remain available. */ }
-  finally { keys.forEach(key => pendingDesktopKeys.delete(key)); }
+  let budget = 16 * 1024 * 1024;
+  const selected = files.filter(file => {
+    if (onHover) return true;
+    if ((file.size || 0) > budget) return false;
+    budget -= file.size || 0;
+    return true;
+  });
+  // Keep downloads sequential so listing a folder does not saturate the connection.
+  for (const file of selected) {
+    try { await getDesktopOriginal(file); } catch (error) { /* Button downloads still work. */ }
+  }
 }
 function addDesktopDownloadData(transfer, file) {
-  const link = desktopDownloadLinks.get(file.key);
-  if (!link || link.expiresAt <= Date.now()) return false;
+  const original = desktopOriginals.get(file.key);
+  if (!original) return false;
   const name = file.name.replace(/[\r\n:]/g, '_');
-  transfer.setData('DownloadURL', 'application/octet-stream:' + name + ':' + link.url);
-  // Keep text/plain as the R2 key for existing in-site folder moves.
+  transfer.setData('DownloadURL', original.type + ':' + name + ':' + original.url);
+  transfer.setData('text/uri-list', original.url);
   transfer.effectAllowed = 'copyMove';
   return true;
 }
-document.getElementById('logoutButton').addEventListener('click', () => desktopDownloadLinks.clear());
-window.addEventListener('pagehide', () => desktopDownloadLinks.clear());
+function bindDesktopPhotoImage(image, file) {
+  image.draggable = true;
+  image.title = '바탕화면으로 끌어 원본 다운로드';
+  image.addEventListener('dragstart', event => {
+    event.dataTransfer.setData('text/plain', file.key);
+    addDesktopDownloadData(event.dataTransfer, file);
+    event.stopPropagation();
+  });
+}
+async function showFilePhotoPreview(file, icon) {
+  try {
+    const original = await getDesktopOriginal(file);
+    if (!icon.isConnected) return;
+    const image = document.createElement('img');
+    image.src = original.url; image.alt = file.name;
+    image.onerror = () => { icon.innerHTML = getFileIconHtml(file.name); };
+    bindDesktopPhotoImage(image, file);
+    icon.replaceChildren(image);
+  } catch (error) { /* Keep the ordinary image icon on decode/download failure. */ }
+}
+document.getElementById('logoutButton').addEventListener('click', clearDesktopOriginals);
+window.addEventListener('pagehide', clearDesktopOriginals);

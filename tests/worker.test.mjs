@@ -262,7 +262,7 @@ test('desktop drag preserves internal move data and adds DownloadURL with no adm
   const context=vm.createContext({
     Map, Set, URL, Date, API:'https://example.workers.dev',getToken:()=> 'owner-login-token',
     document:{getElementById:()=>({addEventListener:()=>{}})},window:{addEventListener:()=>{}},
-    apiFetch:async()=>({ok:true,json:async()=>({links:[{key:'写真.jpg',path:'/api/download?key=photo&ticket=scoped',expiresAt:Date.now()+300000}]})})
+    fetchPhotoBlob:async()=>new Blob(['original image'],{type:'image/jpeg'})
   });
   vm.runInContext(code,context);
   const file={key:'写真.jpg',name:'写真.jpg'};
@@ -271,7 +271,10 @@ test('desktop drag preserves internal move data and adds DownloadURL with no adm
   const transfer={setData:(type,value)=>data.set(type,value)};
   assert.equal(context.addDesktopDownloadData(transfer,file),true);
   assert.equal(data.get('text/plain'),file.key);
-  assert.ok(data.get('DownloadURL').includes('ticket=scoped'));
+  assert.ok(data.get('DownloadURL').startsWith('image/jpeg:写真.jpg:blob:'));
+  assert.ok(data.get('text/uri-list').startsWith('blob:'));
+  assert.equal(await (await fetch(data.get('text/uri-list'))).text(),'original image');
+  context.clearDesktopOriginals();
   assert.ok(!data.get('DownloadURL').includes('owner-login-token'));
   assert.equal(transfer.effectAllowed,'copyMove');
 });
@@ -314,4 +317,55 @@ test('double-click on file name downloads that file', async () => {
   vm.runInNewContext(code,{row:{querySelector:()=>name,addEventListener:()=>{}},file:{key:'my-file'},downloadFile:key=>{downloaded=key;},prepareDesktopDownloads:()=>{}});
   handlers.dblclick({stopPropagation:()=>{stopped=true;}});
   assert.equal(downloaded,'my-file');assert.equal(stopped,true);
+});
+
+test('photo delete uses existing password confirmation and only removes the shared original on success', async () => {
+  const {call,env}=setup();const token=await login(call);
+  const key='写真/123-photo.jpg';await env.FILES.put(key,'original');
+  const html=await readFile(new URL('../work.html',import.meta.url),'utf8');
+  const start=html.indexOf('async function deleteFile(');
+  const code=html.slice(start,html.indexOf('/*\n * DELETE FOLDER',start));
+  let password=null, refreshes=0,cacheCleared=false;
+  const context=vm.createContext({
+    prompt:()=>password,confirm:()=>true,alert:()=>{},
+    apiFetch:(path,options)=>call(path,options.method,null,token),
+    loadFiles:async()=>{refreshes++;},loadStorage:async()=>{},forgetDesktopOriginal:()=>{cacheCleared=true;}
+  });
+  vm.runInContext(code,context);
+  assert.equal(await context.deleteFile(key),undefined);assert.ok(env.FILES.objects.has(key));
+  password='wrong';assert.equal(await context.deleteFile(key),undefined);assert.ok(env.FILES.objects.has(key));
+  password='test-password-only';assert.equal(await context.deleteFile(key),true);
+  assert.ok(!env.FILES.objects.has(key));assert.equal(refreshes,1);assert.equal(cacheCleared,true);
+});
+
+test('photo gallery delete button refreshes only after confirmed successful deletion', async () => {
+  const js=await readFile(new URL('../photos.js',import.meta.url),'utf8');
+  const start=js.indexOf("  const remove = document.createElement('button');");
+  const code=js.slice(start,js.indexOf('  actions.append(',start));
+  let success=false,refreshes=0,key;
+  const context=vm.createContext({
+    document:{createElement:()=>({disabled:false})},photo:{key:'photo-key'},alert:()=>{},
+    deleteFile:async value=>{key=value;return success;},loadPhotos:async()=>{refreshes++;}
+  });
+  vm.runInContext(code+'\nglobalThis.removeButton = remove;',context);
+  await context.removeButton.onclick();assert.equal(refreshes,0);assert.equal(context.removeButton.disabled,false);
+  success=true;await context.removeButton.onclick();assert.equal(refreshes,1);assert.equal(key,'photo-key');
+});
+
+test('original image drag uses the same binding for both photo and file previews', async () => {
+  const js=await readFile(new URL('../desktop-downloads.js',import.meta.url),'utf8');
+  const handlers={};const context=vm.createContext({
+    URL,Map,getToken:()=> 'token',fetchPhotoBlob:async()=>new Blob(['full-size'],{type:'image/jpeg'}),
+    document:{getElementById:()=>({addEventListener:()=>{}})},window:{addEventListener:()=>{}}
+  });
+  vm.runInContext(js,context);const file={key:'photo.jpg',name:'photo.jpg'};
+  await context.getDesktopOriginal(file);
+  const image={addEventListener:(type,fn)=>handlers[type]=fn};context.bindDesktopPhotoImage(image,file);
+  const data=new Map();let stopped=false;
+  handlers.dragstart({dataTransfer:{setData:(type,value)=>data.set(type,value)},stopPropagation:()=>{stopped=true;}});
+  assert.equal(image.draggable,true);assert.equal(stopped,true);assert.equal(data.get('text/plain'),file.key);
+  assert.equal(await (await fetch(data.get('text/uri-list'))).text(),'full-size');
+  const photos=await readFile(new URL('../photos.js',import.meta.url),'utf8');
+  assert.ok(photos.includes('bindDesktopPhotoImage(image,'));assert.ok(js.includes('bindDesktopPhotoImage(image, file)'));
+  context.clearDesktopOriginals();
 });

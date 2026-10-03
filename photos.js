@@ -81,13 +81,11 @@ async function runPhotoPreviews() {
     photoPreviewActive++;
     (async () => {
       try {
-        const blob = await fetchPhotoBlob(item.key);
+        const original = await getDesktopOriginal({ key: item.key, name: item.name });
         if (item.generation !== photoGeneration) return;
-        const thumbnail = await resizePhotoBlob(blob, 300);
-        if (item.generation !== photoGeneration) return;
-        const url = URL.createObjectURL(thumbnail);
-        photoPreviewUrls.push(url);
-        const image = document.createElement('img'); image.src = url; image.alt = item.name;
+        const image = document.createElement('img'); image.src = original.url; image.alt = item.name;
+        bindDesktopPhotoImage(image, { key: item.key, name: item.name });
+        image.onerror = () => { item.element.textContent = '미리보기 불가 · 일반 다운로드 가능'; };
         item.element.replaceChildren(image);
       } catch (error) {
         if (item.generation === photoGeneration) item.element.textContent = '미리보기 불가 · 일반 다운로드 가능';
@@ -109,7 +107,15 @@ function renderPhotoCard(photo) {
   original.onclick = () => downloadFile(photo.key);
   const small = document.createElement('button'); small.textContent = '저용량 · 500px';
   small.onclick = () => downloadSmallPhoto(photo.key, photo.name, small);
-  actions.append(original, small); info.append(name, path, actions); card.append(preview, info);
+  const remove = document.createElement('button'); remove.textContent = '삭제';
+  remove.onclick = async () => {
+    if (remove.disabled) return;
+    remove.disabled = true;
+    try { if (await deleteFile(photo.key)) await loadPhotos(); }
+    catch (error) { alert(error.message || '사진 삭제에 실패했습니다.'); }
+    finally { remove.disabled = false; }
+  };
+  actions.append(original, small, remove); info.append(name, path, actions); card.append(preview, info);
   document.getElementById('photoGrid').appendChild(card);
   if (photoObserver) photoObserver.observe(preview);
   else { photoPreviewQueue.push({ key: photo.key, name: photo.name, element: preview, generation: photoGeneration }); runPhotoPreviews(); }

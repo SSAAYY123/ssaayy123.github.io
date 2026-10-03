@@ -622,6 +622,7 @@ main {
     grid-template-columns: 1fr;
   }
 }
+.fileIcon img { width:32px; height:32px; object-fit:cover; }
 .photoHelp { color:#666; font-size:14px; line-height:1.6; }
 .photoGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; margin:20px 0; }
 .photoCard { background:white; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; }
@@ -1855,9 +1856,10 @@ checkbox.addEventListener(
         event.stopPropagation();
         downloadFile(file.key);
       });
-      row.addEventListener("mouseenter", function() { prepareDesktopDownloads([file]); });
+      row.addEventListener("mouseenter", function() { prepareDesktopDownloads([file], true); });
 
       row.querySelector(".fileIcon").innerHTML = getFileIconHtml(file.name);
+      if (isPhotoName(file.name)) showFilePhotoPreview(file, row.querySelector(".fileIcon"));
 
       row.querySelector(
         ".fileSize"
@@ -2760,6 +2762,8 @@ async function deleteFile(
 
   await loadFiles();
   await loadStorage();
+  forgetDesktopOriginal(key);
+  return true;
 }
 
 /*
