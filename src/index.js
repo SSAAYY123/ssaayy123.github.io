@@ -814,7 +814,7 @@ export default {
       ) {
         const body = await request.json();
 
-        const source = cleanFolder(body.sourceFolder);
+        const source = cleanFolder(body.sourceFolder ?? body.source);
         const destination = cleanFolder(body.destinationFolder);
 
         if (!source) {
@@ -963,7 +963,7 @@ export default {
       ) {
         const body = await request.json();
 
-        const source = cleanFolder(body.sourceFolder);
+        const source = cleanFolder(body.sourceFolder ?? body.source);
         const newName = String(body.newName || "").trim();
 
         if (!source) {

@@ -127,3 +127,43 @@ test('entry opens work directly without a guest button or menu choice', async ()
   assert.ok(!html.includes('guestButton'));
   assert.ok(!html.includes('hobby.html'));
 });
+
+test('folder creation and UI rename preserve nested file contents and metadata', async () => {
+  const html = await readFile(new URL('../work.html', import.meta.url), 'utf8');
+  const renameCode = html.slice(html.indexOf('async function renameFolder(source)'), html.indexOf('/*\n * DOWNLOAD', html.indexOf('async function renameFolder(source)')));
+  for (const populated of [false, true]) {
+    const { call, env } = setup(); const token = await login(call);
+    assert.equal((await call('/api/folder', 'POST', { name: '새 폴더' }, token)).status, 200);
+    if (populated) await env.FILES.put('새 폴더/하위/자료.txt', '내용 보존', { customMetadata: { originalName: '자료.txt' }, httpMetadata: { contentType: 'text/plain' } });
+    const alerts = []; let reloads = 0;
+    const context = vm.createContext({
+      currentPrefix: '새 폴더/', prompt: () => '변경한 폴더', confirm: () => true,
+      alert: message => alerts.push(message), loadFiles: async () => { reloads++; },
+      apiFetch: async (path, options) => call(path, options.method, JSON.parse(options.body), token)
+    });
+    vm.runInContext(renameCode, context);
+    await context.renameFolder('새 폴더/');
+    assert.deepEqual(alerts, []);
+    assert.equal(reloads, 1);
+    assert.equal(context.currentPrefix, '변경한 폴더/');
+    const list = await (await call('/api/files', 'GET', null, token)).json();
+    assert.deepEqual(list.folders.map(f => f.name), ['변경한 폴더']);
+    assert.ok(!env.FILES.objects.has('새 폴더/'));
+    if (populated) {
+      const moved = await env.FILES.get('변경한 폴더/하위/자료.txt');
+      assert.equal(await moved.text(), '내용 보존');
+      assert.equal(moved.customMetadata.originalName, '자료.txt');
+      assert.equal(moved.httpMetadata.contentType, 'text/plain');
+      assert.ok(!env.FILES.objects.has('새 폴더/하위/자료.txt'));
+    }
+  }
+});
+
+test('cached frontend source field remains compatible for renaming and moving folders', async () => {
+  const { call, env } = setup(); const token = await login(call);
+  await call('/api/folder', 'POST', { name: '원본' }, token);
+  assert.equal((await call('/api/rename-folder', 'POST', { source: '원본/', newName: '수정' }, token)).status, 200);
+  assert.equal((await call('/api/move-folder', 'POST', { source: '수정/', destinationFolder: '상위' }, token)).status, 200);
+  assert.ok(env.FILES.objects.has('상위/수정/'));
+  assert.ok(!env.FILES.objects.has('수정/'));
+});

@@ -2450,7 +2450,7 @@ async function moveFolder(
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          source: source,
+          sourceFolder: source,
           destinationFolder: destination
         })
       }
@@ -2515,7 +2515,7 @@ async function renameFolder(source) {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          source: source,
+          sourceFolder: source,
           newName: trimmedName
         })
       }
