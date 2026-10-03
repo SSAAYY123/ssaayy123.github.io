@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { createHmac } from 'node:crypto';
 import worker from '../src/index.js';
 
 class Bucket {
@@ -43,20 +44,24 @@ test('static pages, preflight, missing credentials and unauthorized API', async 
   assert.equal((await call('/api/files', 'OPTIONS')).status, 204);
   assert.equal((await call('/api/files')).status, 401);
   delete env.AUTH_PASSWORD;
-  assert.equal((await call('/api/guest', 'POST')).status, 503);
+  assert.equal((await call('/api/me')).status, 503);
 });
 
-test('admin login and guest permissions', async () => {
-  const {call} = setup();
+test('owner login works and new/previous guest access is rejected', async () => {
+  const {call, env} = setup();
   assert.equal((await call('/api/login', 'POST', {username:'test-admin', password:'wrong'})).status, 401);
   const admin = await login(call);
   assert.equal((await (await call('/api/me', 'GET', null, admin)).json()).role, 'admin');
-  const guest = (await (await call('/api/guest', 'POST')).json()).token;
-  assert.equal((await (await call('/api/me', 'GET', null, guest)).json()).role, 'guest');
-  assert.equal((await call('/api/files', 'GET', null, guest)).status, 200);
-  for (const path of ['/api/upload','/api/folder','/api/move','/api/move-folder','/api/rename-folder','/api/notes','/api/events','/api/dreams']) {
-    assert.equal((await call(path, 'POST', {title:'forbidden'}, guest)).status, 403, path);
+  assert.equal((await call('/api/guest', 'POST')).status, 404);
+  const payload = Buffer.from(JSON.stringify({user:'guest',role:'guest',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url');
+  const guest = payload + '.' + createHmac('sha256',env.AUTH_PASSWORD).update(payload).digest('base64url');
+  for (const path of ['/api/me','/api/files','/api/notes','/api/events','/api/dreams']) {
+    assert.equal((await call(path, 'GET', null, guest)).status, 401, path);
   }
+  for (const path of ['/api/upload','/api/folder','/api/move','/api/move-folder','/api/rename-folder','/api/notes','/api/events','/api/dreams']) {
+    assert.equal((await call(path, 'POST', {title:'forbidden'}, guest)).status, 401, path);
+  }
+  assert.equal((await call('/api/files', 'GET', null, admin)).status, 200);
   assert.equal((await call('/api/me', 'GET', null, admin + 'tampered')).status, 401);
   assert.equal((await call('/api/unknown', 'GET', null, admin)).status, 404);
 });
@@ -101,7 +106,7 @@ test('notes, calendar events and dreams persist and support edits/deletion', asy
 });
 
 test('frontend scripts parse and use the owner Worker only; no copied personal dream data', async () => {
-  for (const page of ['index.html','work.html','hobby.html','dream.html']) {
+  for (const page of ['index.html','work.html']) {
     const html=await readFile(new URL('../'+page,import.meta.url),'utf8');
     for (const [,script] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) new vm.Script(script,{filename:page});
     assert.ok(!html.includes('ikjoo123'));
@@ -111,4 +116,14 @@ test('frontend scripts parse and use the owner Worker only; no copied personal d
   const config=JSON.parse(await readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8'));
   assert.equal(config.r2_buckets[0].bucket_name,'ssaayy-files');
   assert.equal(config.assets.directory,'./public');
+});
+
+test('entry opens work directly without a guest button or menu choice', async () => {
+  const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  let target;
+  const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  vm.runInNewContext(script,{location:{replace: value => {target=value;}}});
+  assert.equal(target,'work.html');
+  assert.ok(!html.includes('guestButton'));
+  assert.ok(!html.includes('hobby.html'));
 });

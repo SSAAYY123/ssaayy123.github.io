@@ -121,8 +121,8 @@ async function getAuthRole(request, env) {
     if (signature !== expected) return null;
     const data = JSON.parse(base64urlDecode(payload));
     if (!data.exp || data.exp < Math.floor(Date.now() / 1000)) return null;
+    if (data.role === "guest") return null;
     if (data.user === env.AUTH_USER) return "admin";
-    if (data.role === "guest") return "guest";
     return null;
   } catch (error) {
     return null;
@@ -348,25 +348,9 @@ export default {
         });
       }
 
-      /*
-       * GUEST LOGIN
-       */
-      if (
-        url.pathname === "/api/guest" &&
-        request.method === "POST"
-      ) {
-        const token = await createToken("guest", env.AUTH_PASSWORD);
-        const payloadParts = token.split(".");
-        const guestPayload = JSON.parse(base64urlDecode(payloadParts[0]));
-        guestPayload.role = "guest";
-        const payload = base64urlEncode(JSON.stringify(guestPayload));
-        const signature = await makeSignature(payload, env.AUTH_PASSWORD);
-        return jsonResponse({
-          ok: true,
-          token: payload + "." + signature,
-          username: "guest",
-          role: "guest"
-        });
+      // Guest sign-in has been removed; previously issued guest tokens are rejected.
+      if (url.pathname === "/api/guest") {
+        return errorResponse("사용할 수 없는 로그인 방식입니다.", 404);
       }
 
       /*
@@ -386,7 +370,7 @@ export default {
 
         return jsonResponse({
           authenticated: true,
-          user: role === "admin" ? env.AUTH_USER : "guest",
+          user: env.AUTH_USER,
           role: role
         });
       }
@@ -422,7 +406,7 @@ export default {
         return null;
       };
 
-      // Apply the read-only guest rule to every mutation, including folder moves.
+      // Require the owner account for all mutations, including folder moves.
       if (request.method !== "GET" && request.method !== "HEAD") {
         const adminError = requireAdmin();
         if (adminError) return adminError;
