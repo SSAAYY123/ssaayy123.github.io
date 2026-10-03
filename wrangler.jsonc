@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ssaayy123-github-io",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-03",
+  "assets": {
+    "directory": "."
+  },
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "ssaayy-files"
+    }
+  ]
+}
