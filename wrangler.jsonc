@@ -4,12 +4,19 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-03",
   "assets": {
-    "directory": "."
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
   },
   "r2_buckets": [
     {
       "binding": "FILES",
       "bucket_name": "ssaayy-files"
     }
-  ]
+  ],
+  "build": {
+    "command": "npm run build"
+  }
 }

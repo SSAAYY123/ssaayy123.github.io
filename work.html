@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>익주</title>
+<title>세희</title>
 
 <style>
 * {
@@ -631,7 +631,7 @@ main {
 
 <div id="loginScreen">
   <div class="loginBox">
-    <h1>익주</h1>
+    <h1>세희</h1>
 
     <div
       id="loginError"
@@ -662,7 +662,7 @@ main {
 <div id="app" class="hidden">
 
 <header>
- <div class="logo" onclick="location.href='index.html'" style="cursor:pointer;">익주</div>
+ <div class="logo" onclick="location.href='index.html'" style="cursor:pointer;">세희</div>
 
   <div class="tabs">
     <button
@@ -889,7 +889,7 @@ main {
 
 <script>
 const INACTIVITY_LIMIT=30*60*1000;
-const INACTIVITY_TOKEN_KEY="ju_files_token";
+const INACTIVITY_TOKEN_KEY="sehee_files_token";
 let inactivityTimer=null;
 function inactivityLogout(){
   localStorage.removeItem(INACTIVITY_TOKEN_KEY);
@@ -915,10 +915,10 @@ resetInactivityTimer();
  */
 
 const API =
-  "https://ssaayy123-github-io.stargril7.workers.dev/";
+  (location.hostname.endsWith(".workers.dev") || location.hostname === "localhost" || location.hostname === "127.0.0.1" ? location.origin : "https://ssaayy123-github-io.stargril7.workers.dev");
 
 const TOKEN_KEY =
-  "ju_files_token";
+  "sehee_files_token";
 
 function getToken() {
   return localStorage.getItem(
@@ -1131,7 +1131,7 @@ loginButton.onclick =
         data.token
       );
 
-      localStorage.setItem("ju_files_role","admin");
+      localStorage.setItem("sehee_files_role","admin");
 
       showApp();
 

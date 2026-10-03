@@ -42,16 +42,20 @@ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:c
         <div class="icon">📁</div><div class="title">업무</div>
         <div class="description">업무 자료 · 메모 · 달력</div>
       </div>
-      
+      <div class="card" onclick="location.href='hobby.html'">
+        <div class="icon">🎨</div><div class="title">취미</div>
+        <div class="description">음악 · 여행 · 사진 · 꿈</div>
+      </div>
+    </div>
     <button id="logoutButton" class="logout">로그아웃</button>
   </div>
 </div>
 
 <script>
-const API="https://ssaayy123-github-io.stargril7.workers.dev";
-const TOKEN_KEY="ju_files_token";
+const API=(location.hostname.endsWith(".workers.dev") || location.hostname === "localhost" || location.hostname === "127.0.0.1" ? location.origin : "https://ssaayy123-github-io.stargril7.workers.dev");
+const TOKEN_KEY="sehee_files_token";
 const INACTIVITY_LIMIT=30*60*1000;
-const ROLE_KEY="ju_files_role";
+const ROLE_KEY="sehee_files_role";
 let inactivityTimer=null;
 
 function showLogin(){
