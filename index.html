@@ -1,12 +1,701 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SSAAYY</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>익주</title>
+
+<style>
+*{box-sizing:border-box}
+
+body{
+margin:0;
+min-height:100vh;
+display:flex;
+align-items:center;
+justify-content:center;
+background:#f5f6f8;
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+color:#222
+}
+
+.container{
+width:100%;
+max-width:700px;
+padding:30px;
+text-align:center
+}
+
+.logo{
+font-size:36px;
+font-weight:700;
+margin-bottom:10px
+}
+
+.subtitle{
+color:#777;
+margin-bottom:32px
+}
+
+.loginBox{
+max-width:360px;
+margin:0 auto;
+background:white;
+padding:28px;
+border-radius:18px;
+box-shadow:0 8px 30px rgba(0,0,0,.08)
+}
+
+.loginBox input{
+width:100%;
+padding:13px;
+margin-bottom:10px;
+border:1px solid #ddd;
+border-radius:9px;
+font:inherit
+}
+
+.loginBox button{
+width:100%;
+padding:13px;
+border:0;
+border-radius:9px;
+background:#202124;
+color:white;
+font:inherit;
+cursor:pointer
+}
+
+.loginError{
+color:#d93025;
+font-size:13px;
+margin-bottom:10px
+}
+
+.hidden{
+display:none!important
+}
+
+.menu{
+display:grid;
+grid-template-columns:repeat(2,1fr);
+gap:20px
+}
+
+.card{
+background:white;
+border:1px solid #e5e7eb;
+border-radius:20px;
+padding:45px 20px;
+cursor:pointer;
+transition:.2s
+}
+
+.card:hover{
+transform:translateY(-4px);
+box-shadow:0 10px 30px rgba(0,0,0,.08)
+}
+
+.icon{
+font-size:45px;
+margin-bottom:15px
+}
+
+.title{
+font-size:21px;
+font-weight:700
+}
+
+.description{
+margin-top:8px;
+color:#888;
+font-size:14px
+}
+
+.logout{
+margin-top:24px;
+border:0;
+background:transparent;
+color:#777;
+cursor:pointer
+}
+
+@media(max-width:600px){
+.menu{
+grid-template-columns:1fr
+}
+}
+</style>
 </head>
+
 <body>
-    <h1>안녕하세요!</h1>
-    <p>SSAAYY의 홈페이지입니다.</p>
+
+<div class="container">
+
+<div class="logo">익주</div>
+
+<div class="subtitle">나만의 공간</div>
+
+<div id="loginScreen" class="loginBox">
+
+<div id="loginError" class="loginError hidden"></div>
+
+<input
+id="username"
+placeholder="아이디"
+autocomplete="username"
+>
+
+<input
+id="password"
+type="password"
+placeholder="비밀번호"
+autocomplete="current-password"
+>
+
+<button id="loginButton">
+관리자 로그인
+</button>
+
+<button
+id="guestButton"
+style="margin-top:10px;background:#fff;color:#333;border:1px solid #ddd"
+>
+게스트로 보기
+</button>
+
+</div>
+
+<div id="app" class="hidden">
+
+<div class="menu">
+
+<div class="card" onclick="location.href='work.html'">
+
+<div class="icon">📁</div>
+
+<div class="title">업무</div>
+
+<div class="description">
+업무 자료 · 메모 · 달력
+</div>
+
+</div>
+
+<div class="card" onclick="location.href='hobby.html'">
+
+<div class="icon">🎨</div>
+
+<div class="title">취미</div>
+
+<div class="description">
+음악 · 여행 · 사진 · 꿈
+</div>
+
+</div>
+
+</div>
+
+<button id="logoutButton" class="logout">
+로그아웃
+</button>
+
+</div>
+
+</div>
+
+<script>
+
+/*
+========================================
+SSAAYY123 PERSONAL WEBSITE
+========================================
+
+Cloudflare Worker API
+
+나중에 네 Worker 주소로 변경하면 됨.
+
+예:
+const API="https://ssaayy123-github-io.xxxxx.workers.dev";
+
+현재는 같은 사이트 기준으로 설정.
+*/
+
+const API="";
+
+const TOKEN_KEY="ssaayy123_token";
+
+const ROLE_KEY="ssaayy123_role";
+
+const INACTIVITY_LIMIT=30*60*1000;
+
+let inactivityTimer=null;
+
+
+/*
+로그인 화면
+*/
+
+function showLogin(){
+
+document
+.getElementById("loginScreen")
+.classList
+.remove("hidden");
+
+document
+.getElementById("app")
+.classList
+.add("hidden");
+
+}
+
+
+/*
+홈페이지 화면
+*/
+
+function showApp(){
+
+document
+.getElementById("loginScreen")
+.classList
+.add("hidden");
+
+document
+.getElementById("app")
+.classList
+.remove("hidden");
+
+startInactivityTimer();
+
+}
+
+
+/*
+로그아웃
+*/
+
+function logout(){
+
+localStorage.removeItem(TOKEN_KEY);
+
+localStorage.removeItem(ROLE_KEY);
+
+if(inactivityTimer){
+
+clearTimeout(inactivityTimer);
+
+}
+
+showLogin();
+
+}
+
+
+/*
+자동 로그아웃 타이머
+*/
+
+function resetInactivityTimer(){
+
+if(!localStorage.getItem(TOKEN_KEY)){
+
+return;
+
+}
+
+if(inactivityTimer){
+
+clearTimeout(inactivityTimer);
+
+}
+
+inactivityTimer=setTimeout(
+logout,
+INACTIVITY_LIMIT
+);
+
+}
+
+
+/*
+활동 감지
+*/
+
+function startInactivityTimer(){
+
+[
+"click",
+"keydown",
+"touchstart",
+"mousemove",
+"scroll"
+].forEach(function(type){
+
+document.addEventListener(
+type,
+resetInactivityTimer,
+{passive:true}
+);
+
+});
+
+resetInactivityTimer();
+
+}
+
+
+/*
+로그인 상태 확인
+*/
+
+async function checkLogin(){
+
+const token=
+localStorage.getItem(TOKEN_KEY);
+
+if(!token){
+
+showLogin();
+
+return;
+
+}
+
+
+/*
+아직 API가 연결되지 않은 경우
+기존 로그인 상태를 유지
+*/
+
+if(!API){
+
+showApp();
+
+return;
+
+}
+
+
+try{
+
+const response=
+await fetch(
+API+"/api/me",
+{
+headers:{
+Authorization:
+"Bearer "+token
+}
+}
+);
+
+if(!response.ok){
+
+throw new Error(
+"인증 실패"
+);
+
+}
+
+showApp();
+
+}catch(error){
+
+localStorage.removeItem(
+TOKEN_KEY
+);
+
+localStorage.removeItem(
+ROLE_KEY
+);
+
+showLogin();
+
+}
+
+}
+
+
+/*
+관리자 로그인
+*/
+
+document
+.getElementById("loginButton")
+.onclick=async function(){
+
+const button=this;
+
+const errorBox=
+document.getElementById(
+"loginError"
+);
+
+const id=
+document
+.getElementById("username")
+.value
+.trim();
+
+const pw=
+document
+.getElementById("password")
+.value;
+
+errorBox.classList.add(
+"hidden"
+);
+
+
+if(!id||!pw){
+
+errorBox.textContent=
+"아이디와 비밀번호를 입력하세요.";
+
+errorBox.classList.remove(
+"hidden"
+);
+
+return;
+
+}
+
+
+button.disabled=true;
+
+
+if(!API){
+
+localStorage.setItem(
+TOKEN_KEY,
+"ssaayy123-admin"
+);
+
+localStorage.setItem(
+ROLE_KEY,
+"admin"
+);
+
+showApp();
+
+button.disabled=false;
+
+return;
+
+}
+
+
+try{
+
+const response=
+await fetch(
+API+"/api/login",
+{
+method:"POST",
+
+headers:{
+"Content-Type":
+"application/json"
+},
+
+body:JSON.stringify({
+username:id,
+password:pw
+})
+
+}
+);
+
+
+const data=
+await response.json();
+
+
+if(!response.ok){
+
+throw new Error(
+data.error ||
+"로그인 실패"
+);
+
+}
+
+
+localStorage.setItem(
+TOKEN_KEY,
+data.token
+);
+
+localStorage.setItem(
+ROLE_KEY,
+data.role ||
+"admin"
+);
+
+
+showApp();
+
+
+}catch(error){
+
+errorBox.textContent=
+error.message ||
+"로그인에 실패했습니다.";
+
+errorBox.classList.remove(
+"hidden"
+);
+
+}finally{
+
+button.disabled=false;
+
+}
+
+};
+
+
+/*
+비밀번호 입력 후 Enter
+*/
+
+document
+.getElementById("password")
+.addEventListener(
+"keydown",
+function(e){
+
+if(e.key==="Enter"){
+
+document
+.getElementById("loginButton")
+.click();
+
+}
+
+}
+);
+
+
+/*
+게스트 로그인
+*/
+
+document
+.getElementById("guestButton")
+.onclick=async function(){
+
+const button=this;
+
+const errorBox=
+document.getElementById(
+"loginError"
+);
+
+errorBox.classList.add(
+"hidden"
+);
+
+button.disabled=true;
+
+
+if(!API){
+
+localStorage.setItem(
+TOKEN_KEY,
+"ssaayy123-guest"
+);
+
+localStorage.setItem(
+ROLE_KEY,
+"guest"
+);
+
+showApp();
+
+button.disabled=false;
+
+return;
+
+}
+
+
+try{
+
+const response=
+await fetch(
+API+"/api/guest",
+{
+method:"POST"
+}
+);
+
+
+const data=
+await response.json();
+
+
+if(!response.ok){
+
+throw new Error(
+data.error ||
+"게스트 로그인 실패"
+);
+
+}
+
+
+localStorage.setItem(
+TOKEN_KEY,
+data.token
+);
+
+localStorage.setItem(
+ROLE_KEY,
+"guest"
+);
+
+
+showApp();
+
+
+}catch(error){
+
+errorBox.textContent=
+error.message ||
+"게스트 로그인에 실패했습니다.";
+
+errorBox.classList.remove(
+"hidden"
+);
+
+}finally{
+
+button.disabled=false;
+
+}
+
+};
+
+
+/*
+로그아웃 버튼
+*/
+
+document
+.getElementById("logoutButton")
+.onclick=logout;
+
+
+/*
+페이지 시작
+*/
+
+checkLogin();
+
+</script>
+
 </body>
 </html>
