@@ -622,6 +622,18 @@ main {
     grid-template-columns: 1fr;
   }
 }
+.photoHelp { color:#666; font-size:14px; line-height:1.6; }
+.photoGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; margin:20px 0; }
+.photoCard { background:white; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; }
+.photoPreview { height:180px; background:#eee; display:flex; align-items:center; justify-content:center; }
+.photoPreview img { width:100%; height:100%; object-fit:contain; }
+.photoInfo { padding:12px; }
+.photoName { font-weight:600; overflow-wrap:anywhere; }
+.photoPath { font-size:12px; color:#777; overflow-wrap:anywhere; margin:6px 0 12px; }
+.photoActions { display:flex; gap:6px; flex-wrap:wrap; }
+.photoActions button { padding:8px; border:1px solid #ddd; background:white; border-radius:6px; }
+header { height:auto; min-height:64px; flex-wrap:wrap; gap:10px; }
+.tabs { flex-wrap:wrap; }
 </style>
 </head>
 
@@ -671,6 +683,8 @@ main {
     >
       📁 파일
     </button>
+
+    <button id="photosTab" class="tab">🖼️ 사진</button>
 
     <button
       id="notesTab"
@@ -749,6 +763,19 @@ main {
     class="pagination"
   ></div>
 
+</section>
+
+<!-- PHOTOS -->
+<section id="photosSection" class="hidden">
+  <div class="toolbar">
+    <button id="photoUploadButton">⬆️ 사진 업로드</button>
+    <button id="photoRefreshButton">새로고침</button>
+    <input id="photoInput" type="file" accept="image/*,.heic,.heif" multiple hidden>
+  </div>
+  <p class="photoHelp">사진은 기존 파일과 같은 저장공간을 사용합니다. 저용량 다운로드는 가로 최대 500px, 세로 비율을 유지한 JPG입니다.</p>
+  <div id="photoStatus" role="status"></div>
+  <div id="photoGrid" class="photoGrid"></div>
+  <button id="photoMoreButton" class="hidden">사진 더 보기</button>
 </section>
 
 <!-- NOTES -->
@@ -887,6 +914,7 @@ main {
 </main>
 </div>
 
+<script src="photos.js"></script>
 <script>
 const INACTIVITY_LIMIT=30*60*1000;
 const INACTIVITY_TOKEN_KEY="sehee_files_token";
@@ -1184,6 +1212,8 @@ document.getElementById(
 ).onclick =
   function() {
     document.getElementById("filesTab").classList.add("active");
+    document.getElementById("photosTab").classList.remove("active");
+    document.getElementById("photosSection").classList.add("hidden");
     document.getElementById("notesTab").classList.remove("active");
     document.getElementById("calendarTab").classList.remove("active");
     filesSection.classList.remove("hidden");
@@ -1196,6 +1226,8 @@ document.getElementById(
 ).onclick =
   async function() {
     document.getElementById("notesTab").classList.add("active");
+    document.getElementById("photosTab").classList.remove("active");
+    document.getElementById("photosSection").classList.add("hidden");
     document.getElementById("filesTab").classList.remove("active");
     document.getElementById("calendarTab").classList.remove("active");
     notesSection.classList.remove("hidden");
@@ -1209,6 +1241,8 @@ document.getElementById(
 ).onclick =
   async function() {
     document.getElementById("calendarTab").classList.add("active");
+    document.getElementById("photosTab").classList.remove("active");
+    document.getElementById("photosSection").classList.add("hidden");
     document.getElementById("filesTab").classList.remove("active");
     document.getElementById("notesTab").classList.remove("active");
     calendarSection.classList.remove("hidden");
@@ -1846,6 +1880,15 @@ checkbox.addEventListener(
         download
       );
 
+      if (isPhotoName(file.name)) {
+        download.title = "일반 다운로드 (원본)";
+        const smallDownload = document.createElement("button");
+        smallDownload.textContent = "500px";
+        smallDownload.title = "저용량 다운로드";
+        smallDownload.onclick = function() { downloadSmallPhoto(file.key, file.name, smallDownload); };
+        actions.appendChild(smallDownload);
+      }
+
       const deleteButton =
         document.createElement(
           "button"
@@ -2073,7 +2116,8 @@ document.getElementById(
 );
 
 async function uploadFiles(
-  files
+  files,
+  targetPrefix = currentPrefix
 ) {
 
   for (
@@ -2114,7 +2158,7 @@ async function uploadFiles(
 
     form.append(
       "folder",
-      currentPrefix
+      targetPrefix
     );
 
     form.append(

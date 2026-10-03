@@ -167,3 +167,67 @@ test('cached frontend source field remains compatible for renaming and moving fo
   assert.ok(env.FILES.objects.has('상위/수정/'));
   assert.ok(!env.FILES.objects.has('수정/'));
 });
+
+test('photo gallery lists the same R2 originals across folders and excludes internal records', async () => {
+  const {call, env} = setup(); const token = await login(call);
+  await env.FILES.put('사진/123-풍경.jpg', 'original bytes', {customMetadata:{originalName:'풍경.jpg'},httpMetadata:{contentType:'image/jpeg'}});
+  await env.FILES.put('자료/이미지.png', 'second original');
+  await env.FILES.put('자료/문서.pdf', 'document');
+  await env.FILES.put('__dreams__/hidden.jpg', 'private record');
+  assert.equal((await call('/api/photos')).status, 401);
+  const photos = await (await call('/api/photos','GET',null,token)).json();
+  assert.deepEqual(photos.photos.map(p=>p.name).sort(), ['이미지.png','풍경.jpg']);
+  assert.equal(photos.cursor, null);
+  const files = await (await call('/api/files?prefix='+encodeURIComponent('사진/'),'GET',null,token)).json();
+  assert.equal(files.files[0].key, photos.photos.find(p=>p.name==='풍경.jpg').key);
+  assert.equal(await (await env.FILES.get('사진/123-풍경.jpg')).text(), 'original bytes');
+});
+
+test('photo gallery carries R2 cursors even when a page contains no images', async () => {
+  const {call, env} = setup(); const token=await login(call);
+  let receivedCursor;
+  env.FILES.list=async options => {
+    receivedCursor=options.cursor;
+    return {objects:[],truncated:!options.cursor,cursor:'r2-next-page'};
+  };
+  const first=await (await call('/api/photos','GET',null,token)).json();
+  assert.equal(first.cursor,'r2-next-page');
+  const second=await (await call('/api/photos?cursor='+first.cursor,'GET',null,token)).json();
+  assert.equal(receivedCursor,'r2-next-page');
+  assert.equal(second.cursor,null);
+});
+
+test('low-size download decodes the original, scales proportionally and exports JPG without uploading', async () => {
+  const code=await readFile(new URL('../photos.js',import.meta.url),'utf8');
+  const functions=code.slice(0,code.indexOf('let photoCursor'));
+  let imageWidth=1200, imageHeight=800, drawSize, jpegOptions, downloaded, closed=0;
+  const calls=[];
+  const context=vm.createContext({
+    Blob, URL, setTimeout: fn=>fn(), alert: message=>{throw new Error(message);},
+    createImageBitmap: async()=>({width:imageWidth,height:imageHeight,close:()=>{closed++;}}),
+    document:{createElement:()=>({
+      getContext:()=>({fillRect:()=>{},drawImage:(_image,_x,_y,w,h)=>{drawSize=[w,h];}}),
+      toBlob:(callback,type,quality)=>{jpegOptions=[type,quality];callback(new Blob(['reduced'],{type}));}
+    })},
+    apiFetch:async(path,options)=>{
+      calls.push({path,options});return {ok:true,blob:async()=>new Blob(['original bytes'],{type:'image/jpeg'})};
+    }
+  });
+  vm.runInContext(functions,context);
+  context.savePhotoBlob=(blob,name)=>{downloaded={blob,name};};
+  const button={disabled:false};
+  await context.downloadSmallPhoto('사진/원본.jpg','원본.jpg',button);
+  assert.deepEqual(drawSize,[500,333]);
+  assert.deepEqual(jpegOptions,['image/jpeg',0.82]);
+  assert.equal(downloaded.name,'원본_500px.jpg');
+  assert.equal(downloaded.blob.type,'image/jpeg');
+  assert.equal(button.disabled,false);
+  assert.equal(closed,1);
+  assert.equal(calls.length,1);
+  assert.ok(calls[0].path.startsWith('/api/download?key='));
+  assert.equal(calls[0].options,undefined);
+  imageWidth=800;imageHeight=1200;
+  await context.resizePhotoBlob(new Blob(['portrait']));assert.deepEqual(drawSize,[500,750]);
+  imageWidth=320;imageHeight=240;
+  await context.resizePhotoBlob(new Blob(['small']));assert.deepEqual(drawSize,[320,240]);
+});

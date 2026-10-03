@@ -412,6 +412,21 @@ export default {
         if (adminError) return adminError;
       }
 
+      // One R2 object per original photo; list pictures across all file folders.
+      if (url.pathname === "/api/photos" && request.method === "GET") {
+        const cursor = url.searchParams.get("cursor") || undefined;
+        const result = await env.FILES.list({ limit: 1000, cursor, include: ["httpMetadata", "customMetadata"] });
+        const photos = result.objects.filter(function(object) {
+          if ([NOTES_PREFIX, EVENTS_PREFIX, DREAMS_PREFIX].some(prefix => object.key.startsWith(prefix))) return false;
+          if (object.key.endsWith("/")) return false;
+          const name = getOriginalName(object);
+          const type = object.httpMetadata?.contentType || "";
+          return type.startsWith("image/") || /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif|avif|tiff?)$/i.test(name);
+        }).map(object => ({ key: object.key, name: getOriginalName(object), size: object.size || 0, uploaded: object.uploaded }));
+        photos.sort((a,b) => new Date(b.uploaded) - new Date(a.uploaded));
+        return jsonResponse({ photos, cursor: result.truncated ? result.cursor : null });
+      }
+
       /*
        * FILE LIST
        */
