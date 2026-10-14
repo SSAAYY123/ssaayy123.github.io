@@ -313,21 +313,26 @@ main {
 }
 
 .notesComposer input,
-.notesComposer textarea {
+.notesComposer textarea, .notesComposer .noteRichEditor {
   width: 100%;
   border: 0;
   outline: 0;
   padding: 14px 16px;
 }
 
-.notesComposer textarea {
+.notesComposer textarea, .notesComposer .noteRichEditor {
   height: 180px;
   min-height: 180px;
   max-height: 420px;
-  resize: none;
   overflow-y: auto;
   transition: height .15s ease;
 }
+.noteRichEditor { white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; font-size:16px; }
+.noteRichEditor:empty:before { content: attr(data-placeholder); color: #999; pointer-events: none; }
+.noteRichEditor .note-size-small { font-size:12px; }
+.noteRichEditor .note-size-normal { font-size:16px; }
+.noteRichEditor .note-size-large { font-size:22px; }
+.noteFormatBar button { touch-action: manipulation; }
 
 .notesComposer.expanded {
   position: fixed;
@@ -341,7 +346,7 @@ main {
   flex-direction: column;
 }
 
-.notesComposer.expanded textarea {
+.notesComposer.expanded textarea, .notesComposer.expanded .noteRichEditor {
   flex: 1;
   height: auto !important;
   max-height: none;
@@ -492,13 +497,13 @@ main {
 .noteCard { height: 190px; min-height: 0; overflow: hidden; padding-right: 42px; }
 .noteCardTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .noteCardText { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
-.noteCard.noteCardOpen { position: fixed; inset: 5vh 5vw; width: 90vw; height: 90vh; z-index: 2000; overflow-y: auto; padding: 26px; box-shadow: 0 12px 50px rgba(0,0,0,.3); }
-.noteCard.noteCardOpen .noteCardTitle { white-space: normal; overflow: visible; padding-right: 38px; }
+.noteCard.noteCardOpen { position: relative; inset: auto; width: auto; height: auto; min-height: 190px; max-height: none; overflow: visible; padding: 16px 42px 16px 16px; grid-column: 1 / -1; }
+.noteCard.noteCardOpen .noteCardTitle { white-space: normal; overflow: visible; padding-right: 10px; }
 .noteCard.noteCardOpen .noteCardText { display: block; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset; }
 .noteCardClose { position: absolute; top: 12px; right: 46px; border: 0; background: rgba(255,255,255,.7); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 18px; }
 .noteCardBackdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1999; }
 
- .noteCardExpand { position: absolute; right: 43px; top: 8px; border: 0; background: transparent; font-size: 21px; cursor: pointer; z-index: 2; padding: 0 5px; }\n.noteCard.noteCardOpen .noteCardExpand { display: none; }\n/* CALENDAR */
+ .noteCardExpand { position: absolute; right: 43px; top: 8px; border: 0; background: transparent; font-size: 21px; cursor: pointer; z-index: 2; padding: 0 5px; }\n.noteCard.noteCardOpen .noteCardExpand { display: block; }\n/* CALENDAR */
 .calendarToolbar {
   display: flex;
   align-items: center;
@@ -810,10 +815,7 @@ header { height:auto; min-height:64px; flex-wrap:wrap; gap:10px; }
       placeholder="제목"
     >
 
-    <textarea
-      id="noteText"
-      placeholder="메모 작성..."
-    ></textarea>
+    <div id="noteText" class="noteRichEditor" contenteditable="true" role="textbox" aria-label="메모 작성" aria-multiline="true" data-placeholder="메모 작성..."></div>
     <div class="noteFormatBar" aria-label="메모 글자 서식">
       <button type="button" id="noteBold" title="선택한 글자 굵게"><strong>B</strong></button>
       <button type="button" data-note-size="small">작게</button>
@@ -2920,47 +2922,78 @@ const expandNote =
   );
 
 function resizeNoteTextarea() {
-
-  if (
-    notesComposer.classList.contains(
-      "expanded"
-    )
-  ) {
-    return;
-  }
-
-  noteText.style.height =
-    "180px";
-
-  const newHeight =
-    Math.min(
-      noteText.scrollHeight,
-      420
-    );
-
-  noteText.style.height =
-    newHeight + "px";
+  if (notesComposer.classList.contains("expanded")) return;
+  noteText.style.height = "180px";
+  noteText.style.height = Math.min(noteText.scrollHeight, 420) + "px";
 }
 
-function applySelectedNoteFormat(prefix, suffix) {
-  const start = noteText.selectionStart;
-  const end = noteText.selectionEnd;
-  if (start === end) { alert("먼저 글자를 드래그해서 선택해 주세요."); noteText.focus(); return; }
-  const original = noteText.value;
-  noteText.value = original.slice(0,start) + prefix + original.slice(start,end) + suffix + original.slice(end);
-  noteText.focus();
-  noteText.setSelectionRange(start + prefix.length, end + prefix.length);
+// A compact WYSIWYG editor inspired by open-source contenteditable editors.
+// Persist the existing plain-text format so old notes and the API remain compatible.
+function loadNoteEditor(value) {
+  noteText.replaceChildren();
+  renderNoteLinks(noteText, value || "");
+  noteText.querySelectorAll("a").forEach(function(link) {
+    link.removeAttribute("href");
+    link.removeAttribute("target");
+  });
   resizeNoteTextarea();
 }
-document.getElementById("noteBold").addEventListener("click", function() { applySelectedNoteFormat("**", "**"); });
-document.querySelectorAll("[data-note-size]").forEach(function(button) {
-  button.addEventListener("click", function() { applySelectedNoteFormat("[size=" + button.dataset.noteSize + "]", "[/size]"); });
+function serializeNoteEditor() {
+  function walk(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const tag = node.tagName.toLowerCase();
+    if (tag === "br") return "\n";
+    let content = Array.from(node.childNodes).map(walk).join("");
+    if (tag === "strong" || tag === "b") content = "**" + content + "**";
+    const size = Array.from(node.classList || []).find(function(c) { return /^note-size-(small|normal|large)$/.test(c); });
+    if (size) content = "[size=" + size.slice(10) + "]" + content + "[/size]";
+    if (tag === "div" || tag === "p") content += "\n";
+    return content;
+  }
+  return Array.from(noteText.childNodes).map(walk).join("").replace(/\n+$/, "").trim();
+}
+function selectedEditorRange() {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  if (!noteText.contains(range.commonAncestorContainer)) return null;
+  return range;
+}
+function formatSelectedNote(kind, size) {
+  const range = selectedEditorRange();
+  if (!range) { noteText.focus({preventScroll:true}); return; }
+  const selection = window.getSelection();
+  const span = document.createElement(kind === "bold" ? "strong" : "span");
+  if (kind === "size") span.className = "note-size-" + size;
+  span.appendChild(range.extractContents());
+  range.insertNode(span);
+  range.selectNodeContents(span);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  // Do not call focus() or scrollIntoView(): toolbar actions must not jump the page.
+  resizeNoteTextarea();
+}
+document.querySelectorAll(".noteFormatBar button").forEach(function(button) {
+  button.addEventListener("mousedown", function(e) { e.preventDefault(); });
+  button.addEventListener("pointerdown", function(e) {
+    if (e.pointerType === "mouse") e.preventDefault();
+  });
 });
-
-noteText.addEventListener(
-  "input",
-  resizeNoteTextarea
-);
+document.getElementById("noteBold").addEventListener("click", function() {
+  formatSelectedNote("bold");
+});
+document.querySelectorAll("[data-note-size]").forEach(function(button) {
+  button.addEventListener("click", function() {
+    formatSelectedNote("size", button.dataset.noteSize);
+  });
+});
+noteText.addEventListener("input", resizeNoteTextarea);
+noteText.addEventListener("paste", function(e) {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+  document.execCommand("insertText", false, text);
+});
 
 expandNote.onclick =
   function() {
@@ -3028,7 +3061,7 @@ async function saveNote() {
     noteTitle.value.trim();
 
   const text =
-    noteText.value.trim();
+    serializeNoteEditor();
 
   if (!title && !text) {
     return;
@@ -3077,7 +3110,7 @@ function clearNoteComposer() {
     null;
 
   noteTitle.value = "";
-  noteText.value = "";
+  loadNoteEditor("");
 
   notesComposer.classList.remove(
   "expanded"
@@ -3343,38 +3376,20 @@ function renderNotes(
       expandButton.type = "button";
       expandButton.className = "noteCardExpand";
       expandButton.textContent = "⤢";
-      expandButton.title = "메모 확대";
-      expandButton.setAttribute("aria-label", "메모 확대");
+      expandButton.title = "메모 펼치기";
+      expandButton.setAttribute("aria-label", "메모 펼치기");
+      expandButton.setAttribute("aria-expanded", "false");
       expandButton.onclick = function(event) {
         event.stopPropagation();
-        if (card.classList.contains("noteCardOpen")) {
-          card.querySelector(".noteCardClose")?.click();
-          return;
-        }
-        const backdrop = document.createElement("div");
-        backdrop.className = "noteCardBackdrop";
-        const closeButton = document.createElement("button");
-        closeButton.className = "noteCardClose";
-        closeButton.textContent = "✕ 닫기";
-        closeButton.setAttribute("aria-label", "메모 닫기");
-        const close = function() {
-          card.classList.remove("noteCardOpen");
-          closeButton.remove();
-          backdrop.remove();
-          document.removeEventListener("keydown", onKeyDown);
-        };
-        const onKeyDown = function(e) { if (e.key === "Escape") close(); };
-        closeButton.onclick = function(e) { e.stopPropagation(); close(); };
-        backdrop.onclick = close;
-        document.body.appendChild(backdrop);
-        card.classList.add("noteCardOpen");
-        card.appendChild(closeButton);
-        document.addEventListener("keydown", onKeyDown);
+        const open = card.classList.toggle("noteCardOpen");
+        expandButton.textContent = open ? "⤡" : "⤢";
+        expandButton.title = open ? "메모 접기" : "메모 펼치기";
+        expandButton.setAttribute("aria-expanded", String(open));
       };
-      card.appendChild(expandButton);
+            card.appendChild(expandButton);
       card.onclick = function(event) {
         if (event.target.closest(".noteMenu, .noteCardExpand, .noteCardClose")) return;
-        if (card.classList.contains("noteCardOpen")) return;
+        if (card.classList.contains("noteCardOpen")) { editNote(note); return; }
         editNote(note);
       };
 
@@ -3391,8 +3406,7 @@ function editNote(note) {
   noteTitle.value =
     note.title || "";
 
-  noteText.value =
-    note.text || "";
+  loadNoteEditor(note.text || "");
 
   selectedColor =
     note.color ||
@@ -3423,9 +3437,6 @@ notesComposer.classList.remove(
 
 expandNote.textContent =
   "↗ 확대";
-
-noteText.style.height =
-  "180px";
 
 resizeNoteTextarea();
   noteTitle.focus();
