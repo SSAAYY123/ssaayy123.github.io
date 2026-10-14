@@ -3122,6 +3122,28 @@ async function loadNotes() {
   }
 }
 
+function renderNoteLinks(container, value) {
+  const urlPattern = /https?:\/\/[^\s<>"']+/gi;
+  const content = String(value || "");
+  let lastIndex = 0;
+  for (const match of content.matchAll(urlPattern)) {
+    const index = match.index;
+    container.appendChild(document.createTextNode(content.slice(lastIndex, index)));
+    const raw = match[0];
+    const url = raw.replace(/[.,!?;:)}\]]+$/g, "");
+    const link = document.createElement("a");
+    link.href = url;
+    link.textContent = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.onclick = function(event) { event.stopPropagation(); };
+    container.appendChild(link);
+    container.appendChild(document.createTextNode(raw.slice(url.length)));
+    lastIndex = index + raw.length;
+  }
+  container.appendChild(document.createTextNode(content.slice(lastIndex)));
+}
+
 function renderNotes(
   notes
 ) {
@@ -3165,8 +3187,7 @@ function renderNotes(
       text.className =
         "noteCardText";
 
-      text.textContent =
-        note.text || "";
+      renderNoteLinks(text, note.text || "");
 
       const menu =
         document.createElement(
