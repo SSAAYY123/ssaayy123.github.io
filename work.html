@@ -3275,6 +3275,10 @@ function renderNotes(
 
       card.onclick = function(event) {
         if (event.target.closest(".noteMenu, .noteCardClose")) return;
+        if (card.classList.contains("noteCardOpen")) {
+          card.querySelector(".noteCardClose")?.click();
+          return;
+        }
         const backdrop = document.createElement("div");
         backdrop.className = "noteCardBackdrop";
         const closeButton = document.createElement("button");
