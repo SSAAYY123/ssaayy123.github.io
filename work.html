@@ -495,7 +495,7 @@ main {
 .noteCardClose { position: absolute; top: 12px; right: 46px; border: 0; background: rgba(255,255,255,.7); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 18px; }
 .noteCardBackdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1999; }
 
-/* CALENDAR */
+ .noteCardExpand { position: absolute; right: 43px; top: 8px; border: 0; background: transparent; font-size: 21px; cursor: pointer; z-index: 2; padding: 0 5px; }\n.noteCard.noteCardOpen .noteCardExpand { display: none; }\n/* CALENDAR */
 .calendarToolbar {
   display: flex;
   align-items: center;
@@ -3273,8 +3273,14 @@ function renderNotes(
         menu
       );
 
-      card.onclick = function(event) {
-        if (event.target.closest(".noteMenu, .noteCardClose")) return;
+      const expandButton = document.createElement("button");
+      expandButton.type = "button";
+      expandButton.className = "noteCardExpand";
+      expandButton.textContent = "⤢";
+      expandButton.title = "메모 확대";
+      expandButton.setAttribute("aria-label", "메모 확대");
+      expandButton.onclick = function(event) {
+        event.stopPropagation();
         if (card.classList.contains("noteCardOpen")) {
           card.querySelector(".noteCardClose")?.click();
           return;
@@ -3298,6 +3304,12 @@ function renderNotes(
         card.classList.add("noteCardOpen");
         card.appendChild(closeButton);
         document.addEventListener("keydown", onKeyDown);
+      };
+      card.appendChild(expandButton);
+      card.onclick = function(event) {
+        if (event.target.closest(".noteMenu, .noteCardExpand, .noteCardClose")) return;
+        if (card.classList.contains("noteCardOpen")) return;
+        editNote(note);
       };
 
       grid.appendChild(card);
