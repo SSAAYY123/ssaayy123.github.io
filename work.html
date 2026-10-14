@@ -484,6 +484,17 @@ main {
 
 
 
+
+/* Saved memo cards: compact preview and full-screen reading */
+.noteCard { height: 190px; min-height: 0; overflow: hidden; padding-right: 42px; }
+.noteCardTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.noteCardText { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
+.noteCard.noteCardOpen { position: fixed; inset: 5vh 5vw; width: 90vw; height: 90vh; z-index: 2000; overflow-y: auto; padding: 26px; box-shadow: 0 12px 50px rgba(0,0,0,.3); }
+.noteCard.noteCardOpen .noteCardTitle { white-space: normal; overflow: visible; padding-right: 38px; }
+.noteCard.noteCardOpen .noteCardText { display: block; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset; }
+.noteCardClose { position: absolute; top: 12px; right: 46px; border: 0; background: rgba(255,255,255,.7); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 18px; }
+.noteCardBackdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1999; }
+
 /* CALENDAR */
 .calendarToolbar {
   display: flex;
@@ -3262,10 +3273,28 @@ function renderNotes(
         menu
       );
 
-      card.onclick =
-        function() {
-          editNote(note);
+      card.onclick = function(event) {
+        if (event.target.closest(".noteMenu, .noteCardClose")) return;
+        const backdrop = document.createElement("div");
+        backdrop.className = "noteCardBackdrop";
+        const closeButton = document.createElement("button");
+        closeButton.className = "noteCardClose";
+        closeButton.textContent = "✕ 닫기";
+        closeButton.setAttribute("aria-label", "메모 닫기");
+        const close = function() {
+          card.classList.remove("noteCardOpen");
+          closeButton.remove();
+          backdrop.remove();
+          document.removeEventListener("keydown", onKeyDown);
         };
+        const onKeyDown = function(e) { if (e.key === "Escape") close(); };
+        closeButton.onclick = function(e) { e.stopPropagation(); close(); };
+        backdrop.onclick = close;
+        document.body.appendChild(backdrop);
+        card.classList.add("noteCardOpen");
+        card.appendChild(closeButton);
+        document.addEventListener("keydown", onKeyDown);
+      };
 
       grid.appendChild(card);
     }
