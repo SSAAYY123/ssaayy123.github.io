@@ -485,6 +485,9 @@ main {
 
 
 
+.noteFormatBar { display:flex; gap:6px; flex-wrap:wrap; padding:8px 12px; }
+.noteFormatBar button { border:1px solid #bbb; border-radius:6px; background:#fff; padding:5px 10px; cursor:pointer; }
+.noteCardText .note-size-small {font-size:12px} .noteCardText .note-size-normal {font-size:16px} .noteCardText .note-size-large {font-size:22px}
 /* Saved memo cards: compact preview and full-screen reading */
 .noteCard { height: 190px; min-height: 0; overflow: hidden; padding-right: 42px; }
 .noteCardTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -811,6 +814,12 @@ header { height:auto; min-height:64px; flex-wrap:wrap; gap:10px; }
       id="noteText"
       placeholder="메모 작성..."
     ></textarea>
+    <div class="noteFormatBar" aria-label="메모 글자 서식">
+      <button type="button" id="noteBold" title="선택한 글자 굵게"><strong>B</strong></button>
+      <button type="button" data-note-size="small">작게</button>
+      <button type="button" data-note-size="normal">보통</button>
+      <button type="button" data-note-size="large">크게</button>
+    </div>
 
     <div class="noteComposerBottom">
 
@@ -2933,6 +2942,21 @@ function resizeNoteTextarea() {
     newHeight + "px";
 }
 
+function applySelectedNoteFormat(prefix, suffix) {
+  const start = noteText.selectionStart;
+  const end = noteText.selectionEnd;
+  if (start === end) { alert("먼저 글자를 드래그해서 선택해 주세요."); noteText.focus(); return; }
+  const original = noteText.value;
+  noteText.value = original.slice(0,start) + prefix + original.slice(start,end) + suffix + original.slice(end);
+  noteText.focus();
+  noteText.setSelectionRange(start + prefix.length, end + prefix.length);
+  resizeNoteTextarea();
+}
+document.getElementById("noteBold").addEventListener("click", function() { applySelectedNoteFormat("**", "**"); });
+document.querySelectorAll("[data-note-size]").forEach(function(button) {
+  button.addEventListener("click", function() { applySelectedNoteFormat("[size=" + button.dataset.noteSize + "]", "[/size]"); });
+});
+
 noteText.addEventListener(
   "input",
   resizeNoteTextarea
@@ -3123,25 +3147,46 @@ async function loadNotes() {
 }
 
 function renderNoteLinks(container, value) {
-  const urlPattern = /https?:\/\/[^\s<>"']+/gi;
-  const content = String(value || "");
-  let lastIndex = 0;
-  for (const match of content.matchAll(urlPattern)) {
-    const index = match.index;
-    container.appendChild(document.createTextNode(content.slice(lastIndex, index)));
-    const raw = match[0];
-    const url = raw.replace(/[.,!?;:)}\]]+$/g, "");
-    const link = document.createElement("a");
-    link.href = url;
-    link.textContent = url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.onclick = function(event) { event.stopPropagation(); };
-    container.appendChild(link);
-    container.appendChild(document.createTextNode(raw.slice(url.length)));
-    lastIndex = index + raw.length;
+  const source = String(value || "");
+  const tokenPattern = /(\*\*|\[size=(?:small|normal|large)\]|\[\/size\]|https?:\/\/[^\s<>"']+)/gi;
+  const stack = [{node: container, kind: "root"}];
+  let cursor = 0;
+  function appendText(value) {
+    stack[stack.length - 1].node.appendChild(document.createTextNode(value));
   }
-  container.appendChild(document.createTextNode(content.slice(lastIndex)));
+  for (const match of source.matchAll(tokenPattern)) {
+    appendText(source.slice(cursor, match.index));
+    const token = match[0];
+    const top = stack[stack.length - 1];
+    if (token === "**") {
+      if (top.kind === "bold") stack.pop();
+      else {
+        const strong = document.createElement("strong");
+        top.node.appendChild(strong);
+        stack.push({node: strong, kind: "bold"});
+      }
+    } else if (token.startsWith("[size=")) {
+      const span = document.createElement("span");
+      span.className = "note-size-" + token.slice(6, -1);
+      top.node.appendChild(span);
+      stack.push({node: span, kind: "size"});
+    } else if (token === "[/size]") {
+      if (top.kind === "size") stack.pop();
+      else appendText(token);
+    } else {
+      const url = token.replace(/[.,!?;:)}\]]+$/g, "");
+      const link = document.createElement("a");
+      link.href = url;
+      link.textContent = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.onclick = function(event) { event.stopPropagation(); };
+      top.node.appendChild(link);
+      appendText(token.slice(url.length));
+    }
+    cursor = match.index + token.length;
+  }
+  appendText(source.slice(cursor));
 }
 
 function renderNotes(
