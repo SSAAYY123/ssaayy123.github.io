@@ -485,7 +485,7 @@ main {
 
 
 
-/* Saved memo cards: compact preview and full-screen reading */
+.noteFormatBar { display:flex; gap:6px; padding:7px 12px; flex-wrap:wrap; }\n.noteFormatBar button { border:1px solid #ddd; border-radius:6px; padding:5px 10px; background:white; cursor:pointer; }\n.note-size-small {font-size:12px} .note-size-normal {font-size:16px} .note-size-large {font-size:22px}\n/* Saved memo cards: compact preview and full-screen reading */
 .noteCard { height: 190px; min-height: 0; overflow: hidden; padding-right: 42px; }
 .noteCardTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .noteCardText { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
@@ -812,7 +812,7 @@ header { height:auto; min-height:64px; flex-wrap:wrap; gap:10px; }
       placeholder="메모 작성..."
     ></textarea>
 
-    <div class="noteComposerBottom">
+    <div class="noteFormatBar"><button type="button" id="noteBold"><b>B</b></button><button type="button" data-note-size="small">작게</button><button type="button" data-note-size="normal">보통</button><button type="button" data-note-size="large">크게</button></div>\n    <div class="noteComposerBottom">
 
       <div class="colors">
 
@@ -2933,6 +2933,17 @@ function resizeNoteTextarea() {
     newHeight + "px";
 }
 
+function wrapNoteSelection(before, after) {
+ const start=noteText.selectionStart,end=noteText.selectionEnd;
+ if(start===end){alert("먼저 글자를 드래그해 선택해 주세요.");noteText.focus();return;}
+ const v=noteText.value;
+ noteText.value=v.slice(0,start)+before+v.slice(start,end)+after+v.slice(end);
+ noteText.focus();noteText.setSelectionRange(start+before.length,end+before.length);
+ resizeNoteTextarea();
+}
+document.getElementById("noteBold").onclick=()=>wrapNoteSelection("**","**");
+document.querySelectorAll("[data-note-size]").forEach(b=>b.onclick=()=>wrapNoteSelection("[size="+b.dataset.noteSize+"]","[/size]"));
+
 noteText.addEventListener(
   "input",
   resizeNoteTextarea
@@ -3122,26 +3133,26 @@ async function loadNotes() {
   }
 }
 
-function renderNoteLinks(container, value) {
-  const urlPattern = /https?:\/\/[^\s<>"']+/gi;
-  const content = String(value || "");
-  let lastIndex = 0;
-  for (const match of content.matchAll(urlPattern)) {
-    const index = match.index;
-    container.appendChild(document.createTextNode(content.slice(lastIndex, index)));
-    const raw = match[0];
-    const url = raw.replace(/[.,!?;:)}\]]+$/g, "");
-    const link = document.createElement("a");
-    link.href = url;
-    link.textContent = url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.onclick = function(event) { event.stopPropagation(); };
-    container.appendChild(link);
-    container.appendChild(document.createTextNode(raw.slice(url.length)));
-    lastIndex = index + raw.length;
+function renderNoteLinks(container,value) {
+ const source=String(value||"");
+ const tokens=/(\\*\\*|\\[size=(?:small|normal|large)\\]|\\[\\/size\\]|https?:\\/\\/[^\\s<>"']+)/gi;
+ const stack=[{node:container,kind:"root"}];let last=0;
+ const add=t=>stack[stack.length-1].node.appendChild(document.createTextNode(t));
+ for(const m of source.matchAll(tokens)){
+  add(source.slice(last,m.index));const t=m[0];
+  if(t==="**"){
+   if(stack[stack.length-1].kind==="bold")stack.pop();
+   else{const el=document.createElement("strong");stack[stack.length-1].node.appendChild(el);stack.push({node:el,kind:"bold"});}
+  }else if(t.startsWith("[size=")){
+   const el=document.createElement("span");el.className="note-size-"+t.slice(6,-1);stack[stack.length-1].node.appendChild(el);stack.push({node:el,kind:"size"});
+  }else if(t==="[/size]"){
+   if(stack[stack.length-1].kind==="size")stack.pop();else add(t);
+  }else{
+   const url=t.replace(/[.,!?;:)}\\]]+$/g,"");const a=document.createElement("a");a.href=url;a.textContent=url;a.target="_blank";a.rel="noopener noreferrer";a.onclick=e=>e.stopPropagation();stack[stack.length-1].node.appendChild(a);add(t.slice(url.length));
   }
-  container.appendChild(document.createTextNode(content.slice(lastIndex)));
+  last=m.index+t.length;
+ }
+ add(source.slice(last));
 }
 
 function renderNotes(
